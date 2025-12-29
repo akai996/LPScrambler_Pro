@@ -40,7 +40,8 @@ jobs:
 
     # 5. 打包 EXE
     - name: Build with PyInstaller
-      run: pyinstaller --onefile --noconsole --name "LP_Scrambler_Guard" LP_Scrambler_V5_Guard.py
+      # 移除了 --noconsole，这样双击 EXE 时会弹出黑框让你输入参数
+      run: pyinstaller --onefile --console --name "LP_Scrambler_Guard" LP_Scrambler_V5_Guard.py
 
     # 6. 上传产物
     - name: Upload EXE Artifact
