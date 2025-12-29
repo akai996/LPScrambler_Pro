@@ -2,35 +2,28 @@ import os
 import random
 import string
 import json
-import base64
 import shutil
 from bs4 import BeautifulSoup
 
-class LPScramblerProV4:
+class LPScramblerProV5:
     def __init__(self, template_path="index.html", white_path="white_template.html", output_dir="dist_lp"):
         self.template_path = template_path
         self.white_path = white_path
         self.output_dir = output_dir
-        # 确保输出目录干净，指纹唯一
         if os.path.exists(self.output_dir):
             shutil.rmtree(self.output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
         self.map = {}
 
     def _rand_str(self, length=8):
-        """生成随机混淆字符串"""
+        """生成随机小写字母字符串用于混淆类名和ID"""
         return ''.join(random.choices(string.ascii_lowercase, k=length))
 
-    def _encode_content(self, text):
-        """将内容切分为 15-25 字符的分片，兼顾熵值混淆与解析速度"""
-        b64_str = base64.b64encode(text.encode()).decode()
-        chunks = []
-        i = 0
-        while i < len(b64_str):
-            size = random.randint(15, 25)
-            chunks.append(b64_str[i:i+size])
-            i += size
-        return chunks
+    def _xor_cipher(self, text):
+        """核心多态加密逻辑：采用随机密钥进行异或运算"""
+        key = random.randint(10, 250)
+        encoded = [ord(c) ^ key for c in text]
+        return encoded, key
 
     def _auto_copy_assets(self, soup):
         """扫描并自动迁移真实落地页引用的本地图片及样式资源"""
@@ -46,37 +39,36 @@ class LPScramblerProV4:
                         shutil.copy(src_path, dest_path)
 
     def scramble(self):
-        # 1. 验证输入文件
+        # 确保单次运行指纹唯一
         if not os.path.exists(self.template_path) or not os.path.exists(self.white_path):
-            print(f"❌ 错误：找不到文件。请确保 {self.template_path} 和 {self.white_path} 在当前文件夹。")
+            print(f"❌ 错误：文件缺失。")
             return
 
-        # 2. 提取白内容（用于初审的外壳）
+        # 1. 提取白内容外壳
         with open(self.white_path, 'r', encoding='utf-8') as f:
             white_soup = BeautifulSoup(f.read(), 'html.parser')
             white_body = "".join([str(x) for x in white_soup.body.contents]) if white_soup.body else ""
             white_title = white_soup.title.string if white_soup.title else "Official Site"
 
-        # 3. 提取并处理真实落地页
+        # 2. 提取并加密真实落地页
         with open(self.template_path, 'r', encoding='utf-8') as f:
             real_soup = BeautifulSoup(f.read(), 'html.parser')
             self._auto_copy_assets(real_soup)
 
-        # 混淆真实页面的 ID 与 Class
+        # 混淆 ID 与 Class 特征
         for tag in real_soup.find_all(True):
             if tag.has_attr('class'):
                 tag['class'] = [self.map.setdefault(c, self._rand_str()) for c in tag['class']]
             if tag.has_attr('id'):
                 tag['id'] = self.map.setdefault(tag['id'], self._rand_str())
 
-        # 提取真实内容并分片加密
+        # 3. 执行 V5 XOR 多态加密
         real_content = "".join([str(x) for x in real_soup.body.contents]) if real_soup.body else ""
-        data_chunks = self._encode_content(real_content)
+        encoded_data, key = self._xor_cipher(real_content)
 
-        # 4. 构建终极壳页面（深度行为触发逻辑）
-        js_chunks = json.dumps(data_chunks)
-        reveal_func = f"load_{self._rand_str(5)}"
-        scroll_handler = f"check_{self._rand_str(5)}"
+        # 4. 构建 V5 壳页面（全指纹消除解密逻辑）
+        # 随机化 JS 变量名以消除解密逻辑的特征码
+        v_data, v_key, v_res, v_trig, v_check = [self._rand_str(6) for _ in range(5)]
         
         final_html = f"""<!DOCTYPE html>
 <html>
@@ -85,75 +77,55 @@ class LPScramblerProV4:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{white_title}</title>
     <style>
-        body {{ margin: 0; padding: 0; font-family: -apple-system, sans-serif; }}
-        #sc-root {{ position: relative; min-height: 200vh; background: #fff; }} /* 强制高度支持滚动 */
+        body {{ margin: 0; padding: 0; font-family: sans-serif; }}
+        #sc-root-v5 {{ position: relative; min-height: 210vh; background: #fff; }}
     </style>
 </head>
 <body>
-    <div id="sc-root">
+    <div id="sc-root-v5">
         {white_body}
     </div>
 
     <script>
     (function(){{
-        var _c = {js_chunks};
-        var _isRun = false;
-        var _triggered = false; 
-        var _triggerPos = 500; 
+        var {v_data} = {json.dumps(encoded_data)}, {v_key} = {key};
+        var _r = false, _t = false;
 
-        function {reveal_func}() {{
-            // 最终环境自检：防止在自动化驱动下释放内容
-            if (_isRun || navigator.webdriver) return;
-            _isRun = true;
+        function _execute() {{
+            if (_r || navigator.webdriver || document.visibilityState !== 'visible') return;
+            _r = true;
             try {{
-                var _h = atob(_c.join(''));
-                document.body.innerHTML = _h;
+                var {v_res} = {v_data}.map(function(c){{ return String.fromCharCode(c ^ {v_key}); }}).join('');
+                document.body.innerHTML = {v_res};
                 window.scrollTo(0, 0);
-            }} catch(e) {{ console.clear(); }}
+            }} catch(e) {{ }}
         }}
 
-        function {scroll_handler}() {{
-            // 行为门槛：滚动超过500px且仅触发一次计时器
-            if (!_triggered && window.scrollY > _triggerPos) {{
-                _triggered = true;
-                // 深度阅读模拟：滚动达标后停留3秒才解密
-                setTimeout({reveal_func}, 3000);
+        function {v_check}() {{
+            if (!_t && window.scrollY > 500) {{
+                _t = true;
+                setTimeout(_execute, 3200);
             }}
         }}
 
-        // 仅通过物理滚动/触摸触发
-        window.addEventListener('scroll', {scroll_handler});
-        window.addEventListener('touchmove', {scroll_handler}); 
+        window.addEventListener('scroll', {v_check});
+        window.addEventListener('touchmove', {v_check});
     }})();
     </script>
 </body>
 </html>"""
 
-        # 5. 保存产物
-        output_file = os.path.join(self.output_dir, "index.html")
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(os.path.join(self.output_dir, "index.html"), 'w', encoding='utf-8') as f:
             f.write(final_html)
-        
-        print(f"\n✨ 混淆任务圆满完成！")
-        print(f"📄 使用白内容: {self.white_path}")
-        print(f"📄 使用落地页: {self.template_path}")
-        print(f"📂 产物目录: {os.path.abspath(self.output_dir)}")
+        print(f"✅ V5 尊享版指纹全消除混淆完成！")
+        print(f"📂 产物路径: {os.path.abspath(self.output_dir)}")
 
 if __name__ == "__main__":
-    print("=== LPScrambler Pro V4 (Final Deep Reading Edition) ===")
-    
-    # 支持自定义文件名的交互输入
-    w_name = input("请输入白内容文件名 (默认 white_template.html): ").strip() or "white_template.html"
-    r_name = input("请输入真实落地页文件名 (默认 index.html): ").strip() or "index.html"
-    
-    # 自动容错补全后缀
-    if not os.path.exists(w_name) and not w_name.endswith(".html"): w_name += ".html"
-    if not os.path.exists(r_name) and not r_name.endswith(".html"): r_name += ".html"
-
+    print("=== LPScrambler Pro V5 (Premium Edition) ===")
+    w_name = input("白页模板名 (默认 white_template.html): ").strip() or "white_template.html"
+    r_name = input("真页文件名 (默认 index.html): ").strip() or "index.html"
     try:
-        LPScramblerProV4(template_path=r_name, white_path=w_name).scramble()
+        LPScramblerProV5(template_path=r_name, white_path=w_name).scramble()
     except Exception as e:
-        print(f"❌ 运行发生致命错误: {e}")
-    
-    print("\n" + "="*40)
-    input("执行完毕，请前往 dist_lp 目录查看。按回车退出...")
+        print(f"❌ 运行失败: {e}")
+    input("\n任务结束，按回车退出...")
