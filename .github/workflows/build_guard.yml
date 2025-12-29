@@ -10,44 +10,39 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    # 1. 拉取代码仓库
+    # 1. 拉取代码
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # 2. 配置 Python 环境
+    # 2. 设置 Python
     - name: Set up Python 3.10
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    # 3. 安装依赖库 (关键修复)
-    # 您的源码引入了 bs4，因此必须安装 beautifulsoup4，否则 EXE 打开会闪退
+    # 3. 安装依赖 (包含 beautifulsoup4)
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install beautifulsoup4 pyinstaller
 
-    # 4. 调试检查 (关键修复)
-    # 列出当前目录文件，确保 LP_Scrambler_V5_Guard.py 确实存在
+    # 4. 调试：确认文件是否存在 (已修复为 PowerShell 语法)
     - name: 🔍 Debug - Verify File Exists
       run: |
-        echo "正在检查根目录文件..."
-        dir
-        if exist LP_Scrambler_V5_Guard.py (
+        echo "正在列出当前目录文件..."
+        ls
+        if (Test-Path "LP_Scrambler_V5_Guard.py") {
             echo "✅ 成功找到 LP_Scrambler_V5_Guard.py"
-        ) else (
+        } else {
             echo "❌ 严重错误：在根目录下找不到 LP_Scrambler_V5_Guard.py"
-            echo "请确认：1.文件名大小写完全一致 2.文件已推送到 GitHub 根目录"
             exit 1
-        )
+        }
 
-    # 5. 执行打包
-    # --noconsole: 运行时不显示黑框
-    # --name: 指定生成的 EXE 名称
+    # 5. 打包 EXE
     - name: Build with PyInstaller
       run: pyinstaller --onefile --noconsole --name "LP_Scrambler_Guard" LP_Scrambler_V5_Guard.py
 
-    # 6. 上传结果
+    # 6. 上传产物
     - name: Upload EXE Artifact
       uses: actions/upload-artifact@v4
       with:
