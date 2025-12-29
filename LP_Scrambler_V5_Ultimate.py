@@ -6,11 +6,13 @@ import shutil
 import urllib.parse
 from bs4 import BeautifulSoup
 
-class LPScramblerProV5Ultimate:
-    def __init__(self, template_path="index.html", white_path="white_template.html", output_dir="dist_lp"):
+class LPScramblerProV5Guard:
+    def __init__(self, template_path="index.html", white_path="white_template.html", output_dir="dist_lp", traffic_param=""):
         self.template_path = template_path
         self.white_path = white_path
         self.output_dir = output_dir
+        self.traffic_param = traffic_param  # URL 白名单参数
+        
         # 确保输出目录干净
         if os.path.exists(self.output_dir):
             shutil.rmtree(self.output_dir)
@@ -28,13 +30,12 @@ class LPScramblerProV5Ultimate:
         return encoded, key
 
     def _auto_copy_assets(self, soup):
-        """自动迁移真实落地页的素材资源"""
+        """自动迁移素材资源"""
         asset_tags = {'img': 'src', 'link': 'href', 'script': 'src'}
         for tag_name, attr in asset_tags.items():
             for element in soup.find_all(tag_name):
                 src = element.get(attr)
                 if src and not src.startswith(('http', '//', 'data:')):
-                    # 路径净化处理，防止带参数的 URL 导致文件找不到
                     clean_src = urllib.parse.urlparse(src).path
                     src_path = os.path.join(os.path.dirname(self.template_path) if os.path.dirname(self.template_path) else ".", clean_src)
                     if os.path.exists(src_path):
@@ -43,19 +44,14 @@ class LPScramblerProV5Ultimate:
                         shutil.copy(src_path, dest_path)
 
     def _generate_junk_code(self):
-        """生成随机的垃圾代码以改变 AST 结构"""
+        """生成随机 AST 噪声代码"""
         func_name = self._rand_str(6)
-        var_a = self._rand_str(3)
-        var_b = self._rand_str(3)
-        num_a = random.randint(10, 99)
-        num_b = random.randint(10, 99)
+        var_a, var_b = self._rand_str(3), self._rand_str(3)
+        num_a, num_b = random.randint(10, 99), random.randint(10, 99)
         op = random.choice(['+', '-', '*'])
-        
-        # 生成一段看起来在做计算但实际无用的 JS 函数
         js_code = f"""
         function {func_name}() {{
-            var {var_a} = {num_a};
-            var {var_b} = {num_b};
+            var {var_a} = {num_a}; var {var_b} = {num_b};
             return {var_a} {op} {var_b};
         }}
         """
@@ -64,47 +60,69 @@ class LPScramblerProV5Ultimate:
     def scramble(self):
         # 0. 基础检查
         if not os.path.exists(self.template_path) or not os.path.exists(self.white_path):
-            print(f"❌ 错误：文件缺失。请确保 {self.template_path} 和 {self.white_path} 存在。")
+            print(f"❌ 错误：文件缺失。")
             return
 
-        # 1. 提取白内容外壳
+        # 1. 处理白页 (含素材迁移)
         with open(self.white_path, 'r', encoding='utf-8') as f:
             white_soup = BeautifulSoup(f.read(), 'html.parser')
+            self._auto_copy_assets(white_soup) # 【双向迁移】防止白页样式崩坏
             white_body = "".join([str(x) for x in white_soup.body.contents]) if white_soup.body else ""
             white_title = white_soup.title.string if white_soup.title else "Official Site"
 
-        # 2. 提取并处理真实落地页
+        # 2. 处理真页
         with open(self.template_path, 'r', encoding='utf-8') as f:
             real_soup = BeautifulSoup(f.read(), 'html.parser')
             self._auto_copy_assets(real_soup)
 
-        # 3. 混淆真页 ID 与 Class
+        # 3. 混淆 ID/Class
         for tag in real_soup.find_all(True):
             if tag.has_attr('class'):
                 tag['class'] = [self.map.setdefault(c, self._rand_str()) for c in tag['class']]
             if tag.has_attr('id'):
                 tag['id'] = self.map.setdefault(tag['id'], self._rand_str())
 
-        # 4. 执行异或加密
+        # 4. 加密内容
         real_content = "".join([str(x) for x in real_soup.body.contents]) if real_soup.body else ""
         encoded_data, key = self._xor_cipher(real_content)
 
-        # 5. 生成随机行为门槛参数
-        v_root_id = self._rand_str(10)          # 随机 CSS 容器 ID
-        v_min_height = random.randint(205, 235) # 随机页面高度 (205vh - 235vh)
-        v_scroll_pos = random.randint(450, 680) # 随机触发滚动位置
-        v_delay_time = random.randint(2800, 4800) # 随机解密延迟时间
+        # 【新增】加密 URL 白名单参数 (防止源码泄露 "gclid")
+        has_param_check = False
+        param_data_enc, param_key_enc = [], 0
+        if self.traffic_param:
+            has_param_check = True
+            param_data_enc, param_key_enc = self._xor_cipher(self.traffic_param)
 
-        # 6. 生成混淆的 JS 变量和逻辑噪声
+        # 5. 生成随机参数
+        v_root_id = self._rand_str(10)
+        v_min_height = random.randint(205, 235)
+        v_scroll_pos = random.randint(450, 680)
+        v_delay_time = random.randint(2800, 4800)
+
+        # 6. 生成 JS 变量
         v_data, v_key, v_res, v_check = [self._rand_str(6) for _ in range(4)]
+        v_dom_target, v_prop_key = self._rand_str(5), self._rand_str(5)
         
-        # 混淆 DOM 操作相关的变量
-        v_dom_target = self._rand_str(5) # 用于存储 document.body
-        v_prop_key = self._rand_str(5)   # 用于存储 innerHTML 字符串
-        
-        # 生成两段垃圾代码 (Logic Noise)
+        # 参数校验相关的变量名
+        v_p_data, v_p_key, v_p_str = self._rand_str(5), self._rand_str(5), self._rand_str(5)
+
         junk_func_1, junk_code_1 = self._generate_junk_code()
         junk_func_2, junk_code_2 = self._generate_junk_code()
+
+        # 构建 URL 检查的 JS 逻辑
+        url_check_logic = ""
+        if has_param_check:
+            url_check_logic = f"""
+            var {v_p_data} = {json.dumps(param_data_enc)};
+            var {v_p_key} = {param_key_enc};
+            // 运行时解密参数名 (如 "gclid")
+            var {v_p_str} = {v_p_data}.map(function(c){{ return String.fromCharCode(c ^ {v_p_key}); }}).join('');
+            
+            // 【核心卫士】检查 URL 是否包含该参数
+            if (window.location.href.indexOf({v_p_str}) === -1) {{
+                return; // 如果没有参数，直接终止，不做任何事情
+            }}
+            """
 
         final_html = f"""<!DOCTYPE html>
 <html>
@@ -127,37 +145,31 @@ class LPScramblerProV5Ultimate:
         var {v_data} = {json.dumps(encoded_data)}, {v_key} = {key};
         var _r = false, _t = false;
         
-        /* 注入逻辑噪声：改变 AST 结构 */
         {junk_code_1}
         {junk_code_2}
 
         function _unlock() {{
-            // 环境自检：Webdriver 和 可见性检查
             if (_r || navigator.webdriver || document.visibilityState !== 'visible') return;
+            
+            // 【流量来源校验区域】
+            {url_check_logic}
+
             _r = true;
             try {{
-                // 解密数据
                 var {v_res} = {v_data}.map(function(c){{ return String.fromCharCode(c ^ {v_key}); }}).join('');
                 
-                // 【核心优化】隐藏 innerHTML 操作
-                // 将 'body' 和 'innerHTML' 拆分成字符串碎片进行拼接，规避关键词扫描
+                // 隐形 DOM 注入
                 var {v_dom_target} = document['bo' + 'dy'];
                 var {v_prop_key} = 'inner' + 'HTML';
-                
-                // 执行 DOM 注入 (模拟懒加载行为)
                 {v_dom_target}[{v_prop_key}] = {v_res};
                 
-                // 调用垃圾代码，增加逻辑混淆度
                 {junk_func_1}();
-                
                 window.scrollTo(0, 0);
             }} catch(e) {{ console.clear(); }}
         }}
 
         function {v_check}() {{
-            // 每次检查滚动时调用垃圾代码，制造不规律的 CPU 占用特征
             {junk_func_2}();
-            
             if (!_t && window.scrollY > {v_scroll_pos}) {{
                 _t = true;
                 setTimeout(_unlock, {v_delay_time});
@@ -174,26 +186,34 @@ class LPScramblerProV5Ultimate:
         with open(os.path.join(self.output_dir, "index.html"), 'w', encoding='utf-8') as f:
             f.write(final_html)
         
-        print(f"✅ V5.3 终极多态版 (AST增强+DOM隐形) 构建完成！")
-        print(f"📊 特征值: 高度{v_min_height}vh | 阈值{v_scroll_pos}px | 延迟{v_delay_time}ms")
+        print(f"✅ V5.4 流量卫士版 (URL白名单+隐身) 构建完成！")
+        if self.traffic_param:
+            print(f"🛡️ 流量锁已开启: 仅允许带 [{self.traffic_param}] 参数的访问触发解密。")
+        else:
+            print(f"⚠️ 警告: 未设置流量参数，任何滚动行为都将触发解密。")
         print(f"📂 产物路径: {os.path.abspath(self.output_dir)}")
-        print(f"👉 注意: 请手动将白页所需的 CSS/图片文件夹拷贝到产物目录中。")
 
 if __name__ == "__main__":
-    print("=== LPScrambler Pro V5.3 (Ultimate AST+DOM Stealth) ===")
+    print("=== LPScrambler Pro V5.4 (Traffic Guard Edition) ===")
     
-    # 自动识别环境，如果是 CI 环境则不等待输入
     is_ci = os.environ.get('GITHUB_ACTIONS') == 'true'
     
     if is_ci:
         w_name = "white_template.html"
         r_name = "index.html"
+        t_param = "gclid" # CI 环境下默认锁定 gclid
     else:
         w_name = input("白页文件名 (默认 white_template.html): ").strip() or "white_template.html"
         r_name = input("真页文件名 (默认 index.html): ").strip() or "index.html"
+        print("-" * 30)
+        print("【流量锁设置】")
+        print("输入 'gclid'  -> 仅允许谷歌广告点击流量")
+        print("输入 'key=123' -> 仅允许特定后缀访问")
+        print("直接回车     -> 不限制 (不推荐)")
+        t_param = input("请输入允许参数: ").strip()
 
     try:
-        LPScramblerProV5Ultimate(template_path=r_name, white_path=w_name).scramble()
+        LPScramblerProV5Guard(template_path=r_name, white_path=w_name, traffic_param=t_param).scramble()
     except Exception as e:
         print(f"❌ 运行失败: {e}")
     
